@@ -1,0 +1,37 @@
+SQL-запросы для анализа логов IIS
+
+# получение всех неудачных попыток входа (например, с кодом 401 или 403):
+SELECT log_date, c_ip, cs_username, cs_uri_stem, sc_status
+FROM iis_logs
+WHERE sc_status IN (401, 403)
+ORDER BY log_date DESC;
+Отслеживание подозрительных запросов (SQL-инъекции, XSS-атаки)
+
+# поиск запросов, содержащих подозрительные символы (например, ', <, >):
+SELECT log_date, c_ip, cs_uri_stem, cs_uri_query
+FROM iis_logs
+WHERE cs_uri_query LIKE '%<%' OR cs_uri_query LIKE '%>%' OR cs_uri_query LIKE '%\'%'
+ORDER BY log_date DESC;
+Анализ использования административных привилегий
+
+# получение всех запросов к административным страницам (например, /admin, /dashboard):
+SELECT log_date, c_ip, cs_username, cs_uri_stem
+FROM iis_logs
+WHERE cs_uri_stem LIKE '/admin%' OR cs_uri_stem LIKE '/dashboard%'
+ORDER BY log_date DESC;
+Отслеживание подозрительных фишинговых запросов
+
+# поиск подозрительных страниц (например, /login):
+SELECT log_date, c_ip, cs_username, cs_uri_stem
+FROM iis_logs
+WHERE cs_uri_stem LIKE '/login%' OR cs_uri_stem LIKE '/signup%'
+ORDER BY log_date DESC;
+Анализ DDoS-атак
+
+# выявление аномальной активности с одного IP-адреса:
+SELECT c_ip, COUNT(*) AS request_count, SUM(cs_bytes) AS total_bytes
+FROM iis_logs
+WHERE log_date >= NOW() - INTERVAL '1 hour'
+GROUP BY c_ip
+HAVING COUNT(*) > 1000
+ORDER BY request_count DESC;

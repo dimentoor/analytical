@@ -1,0 +1,13 @@
+.DS_Store
+__pycache__
+.idea
+example.py
+auth.py
+ignore
+iis_description
+main.py
+sql_requests
+test_alchemy.py
+test_sql.py
+iis_NEW
+sql_requests.txt
