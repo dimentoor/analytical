@@ -4,7 +4,7 @@ __pycache__
 example.py
 auth.py
 ignore
-iis_description
+iis_description.txt
 main.py
 sql_requests
 test_alchemy.py
