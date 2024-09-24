@@ -23,18 +23,23 @@ def check_table_exists(engine, table_name):
 if not check_table_exists(engine, 'iis_logs'):
     iis_logs = Table('iis_logs', metadata,
                      Column('id', Integer, primary_key=True, autoincrement=True),
-                     Column('log_date', TIMESTAMP),
-                     Column('c_ip', String(15)),
-                     Column('cs_username', String(100)),
-                     Column('cs_method', String(10)),
-                     Column('cs_uri_stem', String(255)),
-                     Column('cs_uri_query', String(255)),
-                     Column('sc_status', Integer),
-                     Column('sc_bytes', BigInteger),
-                     Column('cs_bytes', BigInteger),
-                     Column('cs_user_agent', String(255))
+                     Column('date', TIMESTAMP),  # дата
+                     Column('time', String(8)),  # время (формат "HH:MM:SS")
+                     Column('s_ip', String(15)),  # IP сервера
+                     Column('cs_method', String(10)),  # метод запроса (GET, POST и т.д.)
+                     Column('cs_uri_stem', String(255)),  # URI (путь к ресурсу)
+                     Column('cs_uri_query', String(255)),  # запрос URI
+                     Column('s_port', Integer),  # порт сервера
+                     Column('cs_username', String(100)),  # имя пользователя
+                     Column('c_ip', String(15)),  # IP клиента
+                     Column('cs_user_agent', String(255)),  # User-Agent
+                     Column('sc_status', Integer),  # статус ответа сервера (HTTP код)
+                     Column('sc_substatus', Integer),  # подстатус ответа сервера
+                     Column('sc_win32_status', Integer),  # статус Win32
+                     Column('time_taken', Integer)  # время обработки запроса (мс)
                      )
-    metadata.create_all(engine)  # create table in database
+    metadata.create_all(engine)  # создание таблицы в базе данных
+    print("Таблица 'iis_logs' успешно создана.")
 else:
     print("Таблица 'iis_logs' уже существует")
 
@@ -52,31 +57,55 @@ def insert_logs_from_text(file_path):
                         continue
 
                     data = line.split()
-                    log_date = data[0]
-                    c_ip = data[1]
-                    cs_username = data[2]
+
+                    date = data[0]
+                    time = data[1]
+                    s_ip = data[2]
                     cs_method = data[3]
                     cs_uri_stem = data[4]
                     cs_uri_query = data[5]
-                    sc_status = int(data[6])
-                    sc_bytes = int(data[7])
-                    cs_bytes = int(data[8])
+                    s_port = int(data[6])
+                    cs_username = data[7]
+                    c_ip = data[8]
                     cs_user_agent = data[9]
+                    sc_status = int(data[10])
+                    sc_substatus = int(data[11])
+                    sc_win32_status = int(data[12])
+                    time_taken = int(data[13])
 
-                    insert_query = iis_logs.insert().values(
-                        log_date=log_date,
-                        c_ip=c_ip,
-                        cs_username=cs_username,
-                        cs_method=cs_method,
-                        cs_uri_stem=cs_uri_stem,
-                        cs_uri_query=cs_uri_query,
-                        sc_status=sc_status,
-                        sc_bytes=sc_bytes,
-                        cs_bytes=cs_bytes,
-                        cs_user_agent=cs_user_agent
+                    # duplicate check
+                    check_query = f"""
+                                       SELECT COUNT(*) FROM iis_logs
+                                       WHERE date = '{date}' 
+                                       AND time = '{time}'
+                                       AND s_ip = '{s_ip}'
+                                       AND cs_uri_stem = '{cs_uri_stem}'
+                                       AND c_ip = '{c_ip}'
+                                       """
+                    result = connection.execute(check_query).scalar()
+
+                    if result == 0:  # add data
+                        insert_query = iis_logs.insert().values(
+                            date=date,
+                            time=time,
+                            s_ip=s_ip,
+                            cs_method=cs_method,
+                            cs_uri_stem=cs_uri_stem,
+                            cs_uri_query=cs_uri_query,
+                            s_port=s_port,
+                            cs_username=cs_username,
+                            c_ip=c_ip,
+                            cs_user_agent=cs_user_agent,
+                            sc_status=sc_status,
+                            sc_substatus=sc_substatus,
+                            sc_win32_status=sc_win32_status,
+                            time_taken=time_taken
                     )
                     connection.execute(insert_query)
-        print(f"Логи из {file_path} успешно добавлены.")
+                    print(f"Лог добавлен: {data}")
+                else:
+                    print(f"Дубликат найден и пропущен: {data}")
+        print(f"Логи из {file_path} успешно обработаны.")
     except Exception as e:
         print(f"Ошибка при вставке логов: {e}")
 
@@ -105,10 +134,10 @@ def save_query(file_name, df):
 # 1. Анализ неудачных попыток входа в систему
 def analyze_failed_logins():
     query = """
-    SELECT log_date, c_ip, cs_username, cs_uri_stem, sc_status
+    SELECT date, time, c_ip, cs_username, cs_uri_stem, sc_status
     FROM iis_logs
     WHERE sc_status IN (401, 403)
-    ORDER BY log_date DESC;
+    ORDER BY date DESC, time DESC;
     """
     return fetch_data(query)
 
@@ -116,10 +145,10 @@ def analyze_failed_logins():
 # 2. Поиск подозрительных запросов
 def analyze_suspicious_requests():
     query = """
-    SELECT log_date, c_ip, cs_uri_stem, cs_uri_query
+    SELECT date, time, c_ip, cs_uri_stem, cs_uri_query
     FROM iis_logs
     WHERE cs_uri_query LIKE '%<%' OR cs_uri_query LIKE '%>%' OR cs_uri_query LIKE '%\'%'
-    ORDER BY log_date DESC;
+    ORDER BY date DESC, time DESC;
     """
     return fetch_data(query)
 
@@ -127,10 +156,10 @@ def analyze_suspicious_requests():
 # 3. Анализ использования административных привилегий
 def analyze_admin_access():
     query = """
-    SELECT log_date, c_ip, cs_username, cs_uri_stem
+    SELECT date, time, c_ip, cs_username, cs_uri_stem
     FROM iis_logs
     WHERE cs_uri_stem LIKE '/admin%' OR cs_uri_stem LIKE '/dashboard%'
-    ORDER BY log_date DESC;
+    ORDER BY date DESC, time DESC;
     """
     return fetch_data(query)
 
@@ -138,10 +167,10 @@ def analyze_admin_access():
 # 4. Поиск фишинговых страниц
 def analyze_phishing_attempts():
     query = """
-    SELECT log_date, c_ip, cs_username, cs_uri_stem
+    SELECT date, time, c_ip, cs_username, cs_uri_stem
     FROM iis_logs
     WHERE cs_uri_stem LIKE '/login%' OR cs_uri_stem LIKE '/signup%'
-    ORDER BY log_date DESC;
+    ORDER BY date DESC, time DESC;
     """
     return fetch_data(query)
 
@@ -149,9 +178,9 @@ def analyze_phishing_attempts():
 # 5. Анализ DDoS-атак
 def analyze_ddos():
     query = """
-    SELECT c_ip, COUNT(*) AS request_count, SUM(cs_bytes) AS total_bytes
+    SELECT c_ip, COUNT(*) AS request_count, SUM(time_taken) AS total_time
     FROM iis_logs
-    WHERE log_date >= NOW() - INTERVAL '1 hour'
+    WHERE date >= NOW() - INTERVAL '1 hour'
     GROUP BY c_ip
     HAVING COUNT(*) > 1000
     ORDER BY request_count DESC;
